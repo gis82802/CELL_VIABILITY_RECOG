@@ -24,7 +24,7 @@ for filename in os.listdir(IMAGE_DIR):
                                dp=0.9,
                                minDist=20,
                                param1=15,  # Canny 高閾值
-                               param2=15,   # 圓心累計閾值
+                               param2=10,   # 圓心累計閾值
                                minRadius=5,
                                maxRadius=50)
 

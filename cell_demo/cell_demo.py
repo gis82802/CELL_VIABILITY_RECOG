@@ -6,47 +6,52 @@ from PIL import Image, ImageTk
 from ultralytics import YOLO
 from datetime import datetime
 from openpyxl import Workbook
-import torch
 import numpy as np
-
-# RealESRGAN
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
+#import torch
 
 # ====== 專案資料夾 ======
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(PROJECT_DIR, "models")
-IMAGE_DIR = os.path.join(PROJECT_DIR, "images/image files")
+IMAGE_DIR = os.path.join(PROJECT_DIR, "images/image files/0.1D")
 RESULT_DIR = os.path.join(PROJECT_DIR, "images/results")
 os.makedirs(RESULT_DIR, exist_ok=True)
 
-ESRGAN_WEIGHTS = os.path.join(MODEL_DIR, "RealESRGAN_x4plus.pth")
+#ESRGAN_WEIGHTS = os.path.join(MODEL_DIR, "RealESRGAN_x4plus.pth")
 
-# ====== 螢光亮度對比增強 ======
+# ====== CLAHE 對比增強 ======
+clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))  # 創建 CLAHE 物件
+
 def enhance_contrast(image):
-    # 1️⃣ CLAHE 自適應對比
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    l = clahe.apply(l)
-    lab = cv2.merge((l,a,b))
-    image = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    if image is None:
+        return None
+    # 轉成 RGB
+    img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # 取 G 通道
+    img_channel = img_rgb[:, :, 1]
+    # 使用 CLAHE 增強
+    img_clahe = clahe.apply(img_channel)
+    # 合併回三通道 (只保留 G)
+    enchanted_img = cv2.merge([
+        np.zeros_like(img_clahe),  # R
+        img_clahe,                 # G
+        np.zeros_like(img_clahe)   # B
+    ])
+    return cv2.cvtColor(enchanted_img, cv2.COLOR_RGB2BGR)
 
-    # 2️⃣ 可選：增強綠色 channel
-    green = image[:,:,1]
-    green = cv2.equalizeHist(green)
-    image[:,:,1] = green
 
-    return image
-
-# ====== HSI 邊緣偵測 ======
+# ====== 邊緣偵測 ======
 def edge_from_hsi(image):
-    hsi = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
-    intensity = hsi[:,:,2].astype(np.uint8)
+    # hsi = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32) #HSV取V
+    # intensity = hsi[:, :, 2].astype(np.uint8)
+    # b, g, r = cv2.split(image)
+    # intensity = ((r.astype(np.float32) + g.astype(np.float32) + b.astype(np.float32)) / 3).astype(np.uint8) #HSI取I(用算的)
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
+    intensity = lab[:, :, 0]  # Lab取L
     edges = cv2.Canny(intensity, 50, 150)
     return edges
 
-# ====== ESRGAN ======
+"""
+# ====== ESRGAN (已註解掉) ======
 class ESRGAN:
     def __init__(self, model_weights):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -56,7 +61,7 @@ class ESRGAN:
             scale=4,
             model_path=self.model_weights,
             model=self.model,
-            tile=0,
+            tile=400,
             tile_pad=10,
             pre_pad=0,
             half=torch.cuda.is_available(),
@@ -65,25 +70,26 @@ class ESRGAN:
 
     def enhance_single_image(self, input_path, output_path):
         img = cv2.imread(input_path)
-        img = enhance_contrast(img)  # 亮度對比增強
+        img = enhance_contrast(img, contrast=64, brightness=0)
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         sr_image, _ = self.upsampler.enhance(np.array(img_pil), outscale=4)
         sr_image = Image.fromarray(sr_image)
         sr_image.save(output_path)
         print(f"✅ 單張超解析完成: {output_path}")
         return cv2.cvtColor(np.array(sr_image), cv2.COLOR_RGB2BGR)
+"""
 
 # ====== GUI ======
 class CellCounterApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("細胞計數 YOLO + HSI I + ESRGAN")
+        self.root.title("細胞計數 YOLO + HSI I + CLAHE")
         self.root.geometry("1920x1080")
 
         self.model_files = [f for f in os.listdir(MODEL_DIR) if f.endswith(".pt") and "green" in f.lower()]
         self.image_files = [f for f in os.listdir(IMAGE_DIR) if f.endswith("_G.tif")]
 
-        self.esrgan_model = ESRGAN(ESRGAN_WEIGHTS)
+        #self.esrgan_model = ESRGAN(ESRGAN_WEIGHTS)
 
         # 左邊圖片區
         self.frame_left = tk.Frame(root, width=1400, height=1080, bg="black")
@@ -123,12 +129,6 @@ class CellCounterApp:
         self.image_menu["values"] = self.image_files
         self.image_var.set("")
 
-    def enhance_with_esrgan(self, img_path, esrgan_file):
-        if os.path.exists(esrgan_file):
-            return cv2.imread(esrgan_file)
-        else:
-            return self.esrgan_model.enhance_single_image(img_path, esrgan_file)
-
     def run_analysis(self):
         model_name = self.model_var.get()
         image_name = self.image_var.get()
@@ -136,31 +136,40 @@ class CellCounterApp:
             messagebox.showwarning("警告", "請先選擇模型和圖片！")
             return
 
-        model = YOLO(os.path.join(MODEL_DIR, model_name))
+        #model = YOLO(os.path.join(MODEL_DIR, model_name))
         img_path = os.path.join(IMAGE_DIR, image_name)
-        esrgan_file = os.path.join(RESULT_DIR, f"esrgan_{os.path.splitext(image_name)[0]}.jpg")
+        
         result_file = os.path.join(RESULT_DIR, f"result_{os.path.splitext(image_name)[0]}.jpg")
+        edge_file = os.path.join(RESULT_DIR, f"{os.path.splitext(image_name)[0]}_edge.png")  # 儲存邊緣圖
 
-        # 亮度對比增強 + ESRGAN
-        enhanced_img = self.enhance_with_esrgan(img_path, esrgan_file)
+        # CLAHE 對比增強
+        img = cv2.imread(img_path)
+        enhanced_img = enhance_contrast(img)
 
-        # HSI I 通道邊緣
+        # HSI I 通道邊緣偵測
         edges = edge_from_hsi(enhanced_img)
-        edges_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        cv2.imwrite(edge_file, edges)  # 存邊緣圖
+        print(f"✅ 已存邊緣圖: {edge_file}")
 
-        # YOLO 偵測
+        # 將邊緣轉回 RGB
+        edges_rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+
+        # YOLO 偵測 (暫時註解)
+        """
         results = model(cv2.cvtColor(enhanced_img, cv2.COLOR_BGR2RGB))
         boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
         cell_count = len(boxes)
-        annotated = edges_bgr.copy()
+
+        # 在 RGB 邊緣圖上畫框
+        annotated = edges_rgb.copy()
         for (x1, y1, x2, y2) in boxes:
             cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.imwrite(result_file, annotated)
-
+        cv2.imwrite(result_file, cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
         self.result_label.config(text=f"細胞數量: {cell_count}")
+        """
 
-        annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-        img_pil = Image.fromarray(annotated_rgb)
+        # 顯示邊緣圖
+        img_pil = Image.fromarray(edges_rgb)
         img_pil.thumbnail((1400, 1000))
         img_tk = ImageTk.PhotoImage(img_pil)
         self.image_label.config(image=img_tk)
@@ -172,7 +181,7 @@ class CellCounterApp:
             messagebox.showwarning("警告", "請先選擇模型！")
             return
 
-        model = YOLO(os.path.join(MODEL_DIR, model_name))
+        #model = YOLO(os.path.join(MODEL_DIR, model_name))
         image_files_sorted = sorted(
             self.image_files,
             key=lambda f: datetime.strptime(f.split("_")[0] + "_" + f.split("_")[1], "%Y%m%d_%H%M%S")
@@ -180,16 +189,35 @@ class CellCounterApp:
         times, counts = [], []
 
         for img_file in image_files_sorted:
-            esrgan_file = os.path.join(RESULT_DIR, f"esrgan_{os.path.splitext(img_file)[0]}.jpg")
             result_file = os.path.join(RESULT_DIR, f"result_{os.path.splitext(img_file)[0]}.jpg")
-            enhanced_img = self.enhance_with_esrgan(os.path.join(IMAGE_DIR, img_file), esrgan_file)
+            edge_file = os.path.join(RESULT_DIR, f"{os.path.splitext(img_file)[0]}_edge.png")  # 儲存邊緣圖
 
+            # CLAHE 對比增強
+            img = cv2.imread(os.path.join(IMAGE_DIR, img_file))
+            enhanced_img = enhance_contrast(img)
+
+            # 邊緣偵測
+            edges = edge_from_hsi(enhanced_img)
+            cv2.imwrite(edge_file, edges)  # 存邊緣圖
+            edges_rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+
+            # YOLO 偵測 (暫時註解)
+            """
             results = model(cv2.cvtColor(enhanced_img, cv2.COLOR_BGR2RGB))
             boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
             cell_count = len(boxes)
+
+            # 在邊緣圖上畫框
+            annotated = edges_rgb.copy()
+            for (x1, y1, x2, y2) in boxes:
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.imwrite(result_file, cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR))
             counts.append(cell_count)
             times.append(datetime.strptime(img_file.split("_")[0] + "_" + img_file.split("_")[1], "%Y%m%d_%H%M%S"))
+            """
 
+        # Excel 匯出 (暫時不動)
+        """
         wb = Workbook()
         ws = wb.active
         ws.title = "Cell Count"
@@ -199,7 +227,7 @@ class CellCounterApp:
         save_path = os.path.join(PROJECT_DIR, "cell_counts.xlsx")
         wb.save(save_path)
         messagebox.showinfo("完成", f"已輸出 Excel 檔案：\n{save_path}")
-
+        """
 
 if __name__ == "__main__":
     root = tk.Tk()

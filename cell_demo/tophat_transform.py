@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 # --- CLAHE 參數 ---
-clahe = cv.createCLAHE(clipLimit=10.0, tileGridSize=(16, 16))  # 保留你剛剛的設定
+clahe = cv.createCLAHE(clipLimit=5.0, tileGridSize=(16, 16))  # 保留你剛剛的設定
 
 # --- TopHat 與 Gamma 參數 ---
 kernel = np.ones((3, 3), np.uint8)   # 3x3 kernel

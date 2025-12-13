@@ -78,8 +78,8 @@ class CellImageGUI:
         # 創建文字框架，放置標題和作者資訊
         text_frame = tk.Frame(self.title_frame, bg="white")  # 創建文字框架
         text_frame.pack(side="left", padx=(0, 10))  # 放置在左側
-        tk.Label(text_frame, text="National Formosa University", font=("Arial", 24, "bold"), anchor="w", bg="white").pack(anchor="w")  # 顯示大學名稱
-        tk.Label(text_frame, text="author: Bo-Wen Yang , Kai-Hua Huang", font=("Arial", 24, "bold"), anchor="w", bg="white").pack(anchor="w")  # 顯示作者資訊
+        tk.Label(text_frame, text="隊伍名稱：CellFies細胞自拍隊", font=("Arial", 24, "bold"), anchor="w", bg="white").pack(anchor="w")  
+        tk.Label(text_frame, text="作品名稱：基於人工智慧之細胞活性分析", font=("Arial", 24, "bold"), anchor="w", bg="white").pack(anchor="w") 
         
         # 新增切片資訊標籤
         self.slice_info_label = tk.Label(text_frame, text="Current Slice: None", font=("Arial", 16), anchor="w", bg="white")  # 創建切片資訊標籤
